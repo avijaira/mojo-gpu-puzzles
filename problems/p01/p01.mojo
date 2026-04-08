@@ -16,7 +16,10 @@ def add_10(
 ):
     var i = thread_idx.x
     output[i] = a[i] + 10
+
+
 # ANCHOR_END: add_10
+
 
 def main() raises:
     with DeviceContext() as ctx:
