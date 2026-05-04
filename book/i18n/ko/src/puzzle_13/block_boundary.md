@@ -2,9 +2,11 @@
 
 # 블록 경계 버전
 
-1D LayoutTensor `a`와 1D LayoutTensor `b`의 1D 합성곱을 계산하여 1D LayoutTensor `output`에 저장하는 커널을 구현하세요.
+1D TileTensor `a`와 1D TileTensor `b`의 1D 합성곱을 계산하여 1D TileTensor
+`output`에 저장하는 커널을 구현하세요.
 
-**참고:** _일반적인 경우를 처리해야 합니다. 스레드당 전역 읽기 2회, 전역 쓰기 1회만 필요합니다._
+**참고:** _일반적인 경우를 처리해야 합니다. 스레드당 전역 읽기 2회, 전역 쓰기
+1회만 필요합니다._
 
 ## 구성
 
@@ -34,7 +36,8 @@
 
 <div class="solution-tips">
 
-1. `LayoutTensor[dtype, Layout.row_major(TPB + CONV_2 - 1), MutAnyOrigin, address_space = AddressSpace.SHARED].stack_allocation()`으로 공유 메모리 할당
+1. `stack_allocation[dtype=dtype, address_space=AddressSpace.SHARED](row_major[TPB + CONV_2 - 1]())`으로
+   공유 메모리 할당
 2. 메인 데이터 로드: `shared_a[local_i] = a[global_i]`
 3. 경계 데이터 로드: `if local_i < CONV_2 - 1`일 때 다음 블록의 데이터 처리
 4. 커널 로드: `shared_b[local_i] = b[local_i]`
@@ -102,7 +105,8 @@ expected: HostBuffer([14.0, 20.0, 26.0, 32.0, 38.0, 44.0, 50.0, 56.0, 62.0, 68.0
 
 <div class="solution-explanation">
 
-확장된 공유 메모리를 사용해 블록 경계를 넘는 1D 합성곱을 처리하는 솔루션입니다. 자세히 분석해 보겠습니다:
+확장된 공유 메모리를 사용해 블록 경계를 넘는 1D 합성곱을 처리하는 솔루션입니다.
+자세히 분석해 보겠습니다:
 
 ### 메모리 레이아웃과 크기 계산
 
@@ -127,8 +131,8 @@ Block 1 공유 메모리:  [8 9 10 11 12 13 14 0|0 0 0]  // 두 번째 블록. �
 
    ```mojo
    # 합성곱 윈도우에 필요한 패딩을 먼저 고려
-   shared_a = LayoutTensor[dtype, Layout.row_major(TPB + CONV_2 - 1), MutAnyOrigin, address_space = AddressSpace.SHARED].stack_allocation()
-   shared_b = LayoutTensor[dtype, Layout.row_major(CONV_2), MutAnyOrigin, address_space = AddressSpace.SHARED].stack_allocation()
+   shared_a = stack_allocation[dtype=dtype, address_space=AddressSpace.SHARED](row_major[TPB + CONV_2 - 1]())
+   shared_b = stack_allocation[dtype=dtype, address_space=AddressSpace.SHARED](row_major[CONV_2]())
    ```
 
    이렇게 하면 블록 데이터와 겹침 영역을 모두 담기에 충분한 공간이 확보됩니다.
@@ -196,7 +200,8 @@ Block 1 공유 메모리:  [8 9 10 11 12 13 14 0|0 0 0]  // 두 번째 블록. �
    ```
 
 2. **Block 1 접근 패턴**:
-Thread 4부터는 `global_i + j < SIZE_2`가 `False`가 되어 해당 반복을 건너뛰는 점에 주목하세요.
+Thread 4부터는 `global_i + j < SIZE_2`가 `False`가 되어 해당 반복을 건너뛰는
+점에 주목하세요.
 
    ```txt
    Thread 0: [8  9 10 11] × [0 1 2 3]
@@ -226,13 +231,16 @@ Thread 4부터는 `global_i + j < SIZE_2`가 `False`가 되어 해당 반복을 
    - 로드한 데이터의 효율적 재사용
 
 4. **경계 처리**:
-   - 범위 밖 원소를 명시적으로 0으로 설정하여 초기화되지 않은 공유 메모리 읽기 방지
-   - `global_i + j < SIZE_2`로 공유 메모리가 아닌 실제 입력 범위 기준의 경계 검사
+   - 범위 밖 원소를 명시적으로 0으로 설정하여 초기화되지 않은 공유 메모리 읽기
+     방지
+   - `global_i + j < SIZE_2`로 공유 메모리가 아닌 실제 입력 범위 기준의 경계
+     검사
    - 불필요한 연산 없이 적절한 엣지 케이스 처리
 
 ### 경계 조건 개선
 
-이 솔루션은 공유 메모리 범위를 확인하는 대신 `if global_i + j < SIZE_2:`를 사용합니다. 이 패턴은:
+이 솔루션은 공유 메모리 범위를 확인하는 대신 `if global_i + j < SIZE_2:`를
+사용합니다. 이 패턴은:
 
 - **수학적으로 정확**: 입력 데이터가 실제로 존재하는 위치에서만 합성곱 계산
 - **더 효율적**: 입력 배열을 넘어선 위치에 대한 불필요한 연산 회피
@@ -242,7 +250,7 @@ Thread 4부터는 `global_i + j < SIZE_2`가 `False`가 되어 해당 반복을 
 
 - 적절한 경계 검사를 통한 메모리 안전성
 - 최적화된 메모리 접근을 통한 높은 성능
-- LayoutTensor 추상화를 활용한 깔끔한 코드 구조
+- TileTensor 추상화를 활용한 깔끔한 코드 구조
 - 최소한의 동기화 오버헤드
 - 수학적으로 건전한 경계 처리
 

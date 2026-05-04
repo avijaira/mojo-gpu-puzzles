@@ -4,7 +4,8 @@
 
 ## 개요
 
-2D 행렬 `a`의 각 행에 대해 합계를 계산하여 LayoutTensor를 사용해 `output`에 저장하는 커널을 구현하세요.
+2D 행렬 `a`의 각 행에 대해 합계를 계산하여 TileTensor를 사용해 `output`에
+저장하는 커널을 구현하세요.
 
 <img src="/puzzle_15/media/15-w.png" alt="축 합계 시각화" class="light-mode-img">
 <img src="/puzzle_15/media/15-b.png" alt="축 합계 시각화" class="dark-mode-img">
@@ -13,12 +14,14 @@
 
 이 퍼즐에서 다루는 내용:
 
-- LayoutTensor를 활용한 행렬 차원 방향의 병렬 리덕션
+- TileTensor를 활용한 행렬 차원 방향의 병렬 리덕션
 - 블록 좌표를 이용한 데이터 분할
 - 효율적인 공유 메모리 리덕션 패턴
 - 다차원 텐서 레이아웃 다루기
 
-핵심은 스레드 블록을 행렬의 행에 매핑하고, LayoutTensor의 차원별 인덱싱을 활용하면서 각 블록 내에서 효율적인 병렬 리덕션을 수행하는 방법을 이해하는 것입니다.
+핵심은 스레드 블록을 행렬의 행에 매핑하고, TileTensor의 차원별 인덱싱을
+활용하면서 각 블록 내에서 효율적인 병렬 리덕션을 수행하는 방법을 이해하는
+것입니다.
 
 ## 구성
 
@@ -26,8 +29,8 @@
 - 블록당 스레드 수: \\(\\text{TPB} = 8\\)
 - 그리드 크기: \\(1 \\times \\text{BATCH}\\)
 - 공유 메모리: 블록당 \\(\\text{TPB}\\)개 원소
-- 입력 레이아웃: `Layout.row_major(BATCH, SIZE)`
-- 출력 레이아웃: `Layout.row_major(BATCH, 1)`
+- 입력 레이아웃: `row_major[BATCH, SIZE]()`
+- 출력 레이아웃: `row_major[BATCH, 1]()`
 
 행렬 시각화:
 
@@ -118,12 +121,13 @@ expected: HostBuffer([15.0, 51.0, 87.0, 123.0])
 
 <div class="solution-explanation">
 
-LayoutTensor를 활용해 2D 행렬의 행 방향 합계를 병렬로 구하는 리덕션 구현입니다. 단계별로 살펴보겠습니다:
+TileTensor를 활용해 2D 행렬의 행 방향 합계를 병렬로 구하는 리덕션 구현입니다.
+단계별로 살펴보겠습니다:
 
 ### 행렬 레이아웃과 블록 매핑
 
 ```txt
-Input Matrix (4×6) with LayoutTensor:                Block Assignment:
+Input Matrix (4×6) with TileTensor:                Block Assignment:
 [[ a[0,0]  a[0,1]  a[0,2]  a[0,3]  a[0,4]  a[0,5] ] → Block(0,0)
  [ a[1,0]  a[1,1]  a[1,2]  a[1,3]  a[1,4]  a[1,5] ] → Block(0,1)
  [ a[2,0]  a[2,1]  a[2,2]  a[2,3]  a[2,4]  a[2,5] ] → Block(0,2)
@@ -158,9 +162,9 @@ Input Matrix (4×6) with LayoutTensor:                Block Assignment:
    - 각 블록이 하나의 행 전체를 처리
 
 2. **메모리 접근 패턴**:
-   - 입력에 LayoutTensor 2D 인덱싱 사용: `a[batch, local_i]`
+   - 입력에 TileTensor 2D 인덱싱 사용: `a[batch, local_i]`
    - 효율적인 리덕션을 위한 공유 메모리 활용
-   - 출력에 LayoutTensor 2D 인덱싱 사용: `output[batch, 0]`
+   - 출력에 TileTensor 2D 인덱싱 사용: `output[batch, 0]`
 
 3. **병렬 리덕션 로직**:
 
@@ -173,7 +177,9 @@ Input Matrix (4×6) with LayoutTensor:                Block Assignment:
        stride //= 2
    ```
 
-   **참고**: 이 구현에서는 같은 반복 내에서 스레드들이 공유 메모리를 동시에 읽고 쓰기 때문에 잠재적인 경쟁 상태가 발생할 수 있습니다. 더 안전한 방법은 읽기와 쓰기 단계를 분리하는 것입니다:
+   **참고**: 이 구현에서는 같은 반복 내에서 스레드들이 공유 메모리를 동시에 읽고
+   쓰기 때문에 잠재적인 경쟁 상태가 발생할 수 있습니다. 더 안전한 방법은 읽기와
+   쓰기 단계를 분리하는 것입니다:
 
    ```mojo
    stride = TPB // 2
@@ -198,7 +204,7 @@ Input Matrix (4×6) with LayoutTensor:                Block Assignment:
 ### 성능 최적화
 
 1. **메모리 효율성**:
-   - LayoutTensor를 통한 병합 메모리 접근
+   - TileTensor를 통한 병합 메모리 접근
    - 빠른 리덕션을 위한 공유 메모리 활용
    - 행 결과당 한 번의 쓰기
 
@@ -211,7 +217,8 @@ Input Matrix (4×6) with LayoutTensor:                Block Assignment:
    - 최소한의 배리어 (리덕션 중에만 사용)
    - 행 간 독립적인 처리
    - 블록 간 통신 불필요
-   - **경쟁 상태 고려사항**: 현재 구현에서는 병렬 리덕션 중에 읽기-쓰기 충돌이 발생할 수 있으며, 명시적인 읽기-쓰기 단계 분리로 해결할 수 있습니다
+   - **경쟁 상태 고려사항**: 현재 구현에서는 병렬 리덕션 중에 읽기-쓰기 충돌이
+     발생할 수 있으며, 명시적인 읽기-쓰기 단계 분리로 해결할 수 있습니다
 
 ### 복잡도 분석
 
