@@ -26,6 +26,8 @@ def add_10_2d(
     var row = thread_idx.y
     var col = thread_idx.x
     # FILL ME IN (roughly 2 lines)
+    if row < SIZE and col < SIZE:
+        output[row, col] = a[row, col] + 10
 
 
 # ANCHOR_END: add_10_2d_tile_tensor
